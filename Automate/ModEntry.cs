@@ -354,30 +354,40 @@ internal class ModEntry : Mod
     /// <inheritdoc cref="IMultiplayerEvents.ModMessageReceived" />
     private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
     {
-        // update automation if chest options changed
-        if (Context.IsMainPlayer && e is { FromModID: "Pathoschild.ChestsAnywhere", Type: nameof(AutomateUpdateChestMessage) })
+        if (!Context.IsMainPlayer)
+            return;
+
+        bool isChestsAnywhere =
+            e.FromModID == "Pathoschild.ChestsAnywhere"
+            && e.Type == nameof(AutomateUpdateChestMessage);
+
+        bool isNetworkChest =
+            e.FromModID == "Sorcerer.Stardew.NetworkChest"
+            && e.Type == nameof(AutomateUpdateChestMessage);
+
+        if (!isChestsAnywhere && !isNetworkChest)
+            return;
+
+        var message = e.ReadAs<AutomateUpdateChestMessage>();
+
+        var location = message.LocationName != null
+            ? Game1.getLocationFromName(message.LocationName)
+            : null;
+
+        if (location != null)
         {
-            var message = e.ReadAs<AutomateUpdateChestMessage>();
-            var location = message.LocationName != null
-                ? Game1.getLocationFromName(message.LocationName)
-                : null;
-            var player = Game1.GetPlayer(e.FromPlayerID);
+            this.Monitor.Log(
+                $"Received chest update from {e.FromModID} for chest at {message.LocationName} ({message.Tile}), updating machines."
+            );
 
-            string label;
-            if (player is null)
-                label = $"unknown player {e.FromPlayerID}/{e.FromModID}";
-            else if (player != Game1.MasterPlayer)
-                label = $"{player.Name}/{e.FromModID}";
-            else
-                label = e.FromModID;
-
-            if (location != null)
-            {
-                this.Monitor.Log($"Received chest update from {label} for chest at {message.LocationName} ({message.Tile}), updating machines.");
-                this.MachineManager.QueueReload(location);
-            }
-            else
-                this.Monitor.Log($"Received chest update from {label} for chest at {message.LocationName} ({message.Tile}), but no such location was found.");
+            this.MachineManager.QueueReload(location);
+        }
+        else
+        {
+            this.Monitor.Log(
+                $"Received chest update from {e.FromModID} for chest at {message.LocationName} ({message.Tile}), but no such location was found.",
+                LogLevel.Warn
+            );
         }
     }
 
