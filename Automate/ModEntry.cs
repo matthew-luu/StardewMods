@@ -354,6 +354,7 @@ internal class ModEntry : Mod
     /// <inheritdoc cref="IMultiplayerEvents.ModMessageReceived" />
     private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
     {
+        // update automation if chest options changed
         if (!Context.IsMainPlayer)
             return;
 
