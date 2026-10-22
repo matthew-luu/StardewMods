@@ -458,9 +458,6 @@ internal class ModEntry : Mod
                     string savedId = value.Trim();
                     NetworkChest.SetNetworkId(obj, savedId);
 
-                    // Refresh Automate's machine groups for this location.
-                    this.MachineManager.QueueReload(location);
-
                     this.Monitor.Log(
                         $"Network Chest assigned to network '{savedId}'.",
                         LogLevel.Info
