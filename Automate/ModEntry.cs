@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Pathoschild.Stardew.Automate.Framework;
 using Pathoschild.Stardew.Automate.Framework.Commands;
 using Pathoschild.Stardew.Automate.Framework.Models;
+using Pathoschild.Stardew.Automate.Framework.Storage;
 using Pathoschild.Stardew.Common;
 using Pathoschild.Stardew.Common.Integrations.GenericModConfigMenu;
 using Pathoschild.Stardew.Common.Messages;
@@ -14,6 +16,8 @@ using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
 using StardewValley.GameData.BigCraftables;
+using StardewValley.Menus;
+
 
 namespace Pathoschild.Stardew.Automate;
 
@@ -59,6 +63,8 @@ internal class ModEntry : Mod
 
     /// <summary>The current overlay being displayed, if any.</summary>
     private readonly PerScreen<OverlayMenu?> CurrentOverlay = new();
+
+    private const string NetworkChestTexture = "Pathoschild.Stardew.Automate/assets/NetworkChest";
 
 
     /*********
@@ -119,6 +125,7 @@ internal class ModEntry : Mod
         helper.Events.World.ObjectListChanged += this.OnObjectListChanged;
         helper.Events.World.TerrainFeatureListChanged += this.OnTerrainFeatureListChanged;
         helper.Events.World.LargeTerrainFeatureListChanged += this.OnLargeTerrainFeatureListChanged;
+        helper.Events.Input.ButtonPressed += this.OnButtonPressed;
 
         // hook commands
         this.CommandHandler.RegisterWith(helper.ConsoleCommands);
@@ -142,15 +149,17 @@ internal class ModEntry : Mod
     /****
     ** Event handlers
     ****/
+
     /// <inheritdoc cref="IContentEvents.AssetRequested" />
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
     {
-        // add automate storage tags for vanilla storages to enable per-storage settings feature
+        // Add Automate storage tags for vanilla storages.
         if (e.NameWithoutLocale.IsEquivalentTo("Data/BigCraftables"))
         {
             e.Edit(asset =>
             {
-                IDictionary<string, BigCraftableData> assetData = asset.AsDictionary<string, BigCraftableData>().Data;
+                IDictionary<string, BigCraftableData> assetData =
+                    asset.AsDictionary<string, BigCraftableData>().Data;
 
                 foreach (string itemId in AutomateConstants.GetDefaultChestItemIds())
                 {
@@ -170,9 +179,44 @@ internal class ModEntry : Mod
                         entry.ContextTags.Add(AutomateConstants.StorageTakeOnlyTag);
                     }
                 }
+
+                // Add the Network Chest.
+                assetData[NetworkChest.ItemId] = new BigCraftableData
+                {
+                    Name = "Network Chest",
+                    DisplayName = "Network Chest",
+                    Description = "A chest designed to connect to a shared storage network.",
+                    Texture = NetworkChestTexture,
+                    SpriteIndex = 0,
+                    CanBePlacedIndoors = true,
+                    CanBePlacedOutdoors = true
+                };
             });
         }
+
+        // Add the Network Chest crafting recipe.
+        if (e.NameWithoutLocale.IsEquivalentTo("Data/CraftingRecipes"))
+        {
+            e.Edit(asset =>
+            {
+                IDictionary<string, string> recipes =
+                    asset.AsDictionary<string, string>().Data;
+
+                recipes["Network Chest"] =
+                    "(BC)256 1 (BC)239 1/Home/" + NetworkChest.ItemId + "/true/default/";
+            });
+        }
+
+        // Load the Network Chest's custom texture.
+        if (e.NameWithoutLocale.IsEquivalentTo(NetworkChestTexture))
+        {
+            e.LoadFromModFile<Texture2D>(
+                "assets/network-chest2.png",
+                AssetLoadPriority.Medium
+            );
+        }
     }
+
 
     /// <inheritdoc cref="IGameLoopEvents.SaveLoaded" />
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -381,9 +425,77 @@ internal class ModEntry : Mod
         }
     }
 
+    private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
+    {
+        if (!Context.IsWorldReady
+            || e.Button != SButton.MouseRight
+            || Game1.activeClickableMenu != null)
+        {
+            return;
+        }
+
+        Vector2 tile = e.Cursor.GrabTile;
+        GameLocation location = Game1.currentLocation;
+
+        if (!location.objects.TryGetValue(tile, out StardewValley.Object? obj))
+            return;
+
+        if (obj.QualifiedItemId != NetworkChest.QualifiedItemId)
+            return;
+
+        this.Helper.Input.Suppress(e.Button);
+
+        string? networkId = NetworkChest.GetNetworkId(obj);
+
+        if (networkId is null)
+        {
+            Game1.activeClickableMenu = new NamingMenu(
+                value =>
+                {
+                    if (string.IsNullOrWhiteSpace(value))
+                        return;
+
+                    string savedId = value.Trim();
+                    NetworkChest.SetNetworkId(obj, savedId);
+
+                    this.Monitor.Log(
+                        $"Network Chest assigned to network '{savedId}'.",
+                        LogLevel.Info
+                    );
+
+                    this.OpenNetworkChest(savedId);
+                },
+                "Enter a Network ID:"
+            );
+        }
+        else
+        {
+            this.OpenNetworkChest(networkId);
+        }
+    }
+
     /****
     ** Methods
     ****/
+
+    private void OpenNetworkChest(string networkId)
+    {
+        var inventory = NetworkChest.GetInventory(networkId);
+
+        Game1.activeClickableMenu = new ItemGrabMenu(
+            inventory,
+            reverseGrab: false,
+            showReceivingMenu: true,
+            InventoryMenu.highlightAllItems,
+            NetworkChest.CreateDepositHandler(networkId),
+            message: $"Network: {networkId}",
+            behaviorOnItemGrab: NetworkChest.CreateWithdrawHandler(networkId),
+            canBeExitedWithKey: true,
+            showOrganizeButton: true
+        );
+    }
+
+
     /// <summary>Update when the configuration changes.</summary>
     public void ReloadConfig()
     {
