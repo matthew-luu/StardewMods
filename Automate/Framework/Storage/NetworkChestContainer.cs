@@ -1,10 +1,13 @@
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using StardewValley;
 using StardewValley.Inventories;
 using StardewValley.Mods;
+using StardewValley.Objects;
 
 namespace Pathoschild.Stardew.Automate.Framework.Storage;
 
@@ -13,56 +16,149 @@ internal class NetworkChestContainer : IContainer
 {
     private readonly string NetworkId;
 
+    private readonly ModDataDictionary ModDataValues = new();
+
     public GameLocation Location { get; }
 
-    public NetworkChestContainer(string networkId)
-    {
-        this.NetworkId = networkId;
-    }
+    public Rectangle TileArea { get; }
 
-    /// <summary>The shared inventory for this network.</summary>
     public Inventory Inventory =>
         NetworkChest.GetInventory(this.NetworkId);
 
-    public string TypeId => throw new NotImplementedException();
-
-    public string Name => throw new NotImplementedException();
-
-    public ModDataDictionary ModData => throw new NotImplementedException();
-
-    public bool IsJunimoChest => throw new NotImplementedException();
-
-    public bool IsLocked => throw new NotImplementedException();
-
-    public object InventoryReferenceId => throw new NotImplementedException();
-
     IInventory IContainer.Inventory => this.Inventory;
 
-    public Rectangle TileArea => throw new NotImplementedException();
+    public string TypeId => NetworkChest.QualifiedItemId;
 
-    public ITrackedStack? Get(Func<Item, bool> predicate, int count)
+    public string Name => $"Network Chest ({this.NetworkId})";
+
+    public ModDataDictionary ModData => this.ModDataValues;
+
+    public bool IsJunimoChest => false;
+
+    public bool IsLocked => false;
+
+    public object InventoryReferenceId => this.Inventory;
+
+    public NetworkChestContainer(
+        string networkId,
+        GameLocation location,
+        Vector2 tile
+    )
     {
-        throw new NotImplementedException();
+        this.NetworkId = networkId;
+        this.Location = location;
+        this.TileArea = new Rectangle(
+            (int)tile.X,
+            (int)tile.Y,
+            1,
+            1
+        );
     }
 
     public void Store(ITrackedStack stack)
     {
-        throw new NotImplementedException();
+        if (stack.Count <= 0)
+            return;
+
+        NetworkChest.ClearNulls(this.NetworkId);
+
+        Inventory inventory = this.Inventory;
+
+        // Fill existing compatible stacks first.
+        foreach (Item? slot in inventory)
+        {
+            if (slot is null || !stack.Sample.canStackWith(slot))
+                continue;
+
+            Item sample = stack.Sample.getOne();
+            sample.Stack = stack.Count;
+
+            int added = stack.Count - slot.addToStack(sample);
+            stack.Reduce(added);
+
+            if (stack.Count <= 0)
+                return;
+        }
+
+        // Add a new stack if capacity permits.
+        if (inventory.Count < NetworkChest.Capacity)
+            inventory.Add(stack.Take(stack.Count));
     }
 
     public int GetFilled()
     {
-        throw new NotImplementedException();
+        return this.Inventory.Count(item => item is { Stack: > 0 });
     }
 
     public int GetCapacity()
     {
-        throw new NotImplementedException();
+        return NetworkChest.Capacity;
+    }
+
+    public ITrackedStack? Get(Func<Item, bool> predicate, int count)
+    {
+        if (count <= 0)
+            return null;
+
+        var stacks = new List<ITrackedStack>();
+        int countFound = 0;
+
+        foreach (Item? item in this.Inventory.ToArray())
+        {
+            if (item is not { Stack: > 0 } || !predicate(item))
+                continue;
+
+            ITrackedStack tracked;
+
+            try
+            {
+                tracked = new TrackedItem(item)
+                    .OnEmpty((_, taken) => this.Inventory.Remove(taken));
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to track item {item.QualifiedItemId} in network '{this.NetworkId}'.",
+                    ex
+                );
+            }
+
+            stacks.Add(tracked);
+            countFound += item.Stack;
+
+            if (countFound >= count)
+                break;
+        }
+
+        return stacks.Count > 0
+            ? new TrackedItemCollection(stacks.ToArray())
+            : null;
     }
 
     public IEnumerator<ITrackedStack> GetEnumerator()
     {
-        throw new NotImplementedException();
+        foreach (Item? item in this.Inventory.ToArray())
+        {
+            if (item is not { Stack: > 0 })
+                continue;
+
+            ITrackedStack? tracked;
+
+            try
+            {
+                tracked = new TrackedItem(item)
+                    .OnEmpty((_, taken) => this.Inventory.Remove(taken));
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to track item {item.QualifiedItemId} in network '{this.NetworkId}'.",
+                    ex
+                );
+            }
+
+            yield return tracked;
+        }
     }
 
     IEnumerator IEnumerable.GetEnumerator()

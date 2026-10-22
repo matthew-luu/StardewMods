@@ -60,6 +60,15 @@ internal class AutomationFactory : IAutomationFactory
     /// <returns>Returns an instance or <c>null</c>.</returns>
     public IAutomatable? GetFor(SObject obj, GameLocation location, in Vector2 tile)
     {
+        // Network Chest
+        if (obj.QualifiedItemId == NetworkChest.QualifiedItemId)
+        {
+            string? networkId = NetworkChest.GetNetworkId(obj);
+
+            if (!string.IsNullOrWhiteSpace(networkId))
+                return new NetworkChestContainer(networkId, location, tile);
+        }
+
         // chest
         if (obj is Chest chest && chest.playerChest.Value)
         {
