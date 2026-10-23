@@ -363,7 +363,7 @@ internal class ModEntry : Mod
             && e.Type == nameof(AutomateUpdateChestMessage);
 
         bool isNetworkChest =
-            e.FromModID == "Sorcerer.Stardew.NetworkChest"
+            e.FromModID == "Sorcerer.NetworkChest"
             && e.Type == nameof(AutomateUpdateChestMessage);
 
         if (!isChestsAnywhere && !isNetworkChest)
